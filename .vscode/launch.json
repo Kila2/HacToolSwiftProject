@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:HactoolSwiftProject}",
+            "name": "Debug HactoolSwift",
+            "program": "${workspaceFolder:HactoolSwiftProject}/.build/debug/HactoolSwift",
+            "preLaunchTask": "swift: Build Debug HactoolSwift"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:HactoolSwiftProject}",
+            "name": "Release HactoolSwift",
+            "program": "${workspaceFolder:HactoolSwiftProject}/.build/release/HactoolSwift",
+            "preLaunchTask": "swift: Build Release HactoolSwift"
+        }
+    ]
+}
