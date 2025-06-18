@@ -29,7 +29,20 @@ struct HactoolSwift: ParsableCommand {
     @Argument(help: "The input file path.")
     var filePath: String
     
-    // Marked as @escaping to fix compiler error
+    // ... all your processNCA, processPFS0, processXCI functions ...
+    private func processNCA(dataProvider: @escaping DataProvider, keyset: Keyset) throws -> (PrettyPrintable & JSONSerializable)? {
+        let parser = NCAParser(dataProvider: dataProvider, keyset: keyset)
+        try parser.parse()
+        if let outdirPath = self.outdir {
+            let extractor = FileExtractor(outputDirectory: URL(fileURLWithPath: outdirPath))
+            for i in 0..<4 where parser.header.sectionEntries[i].size > 0 {
+                print("\nExtracting Section \(i)...")
+                try parser.extractSection(i, to: extractor)
+            }
+        }
+        return parser
+    }
+    
     private func processPFS0(dataProvider: @escaping DataProvider) throws -> (PrettyPrintable & JSONSerializable)? {
         let partition = try PFS0Parser.parse(dataProvider: dataProvider)
         if let outdirPath = self.outdir {
@@ -38,7 +51,6 @@ struct HactoolSwift: ParsableCommand {
         return partition
     }
     
-    // Marked as @escaping to fix compiler error
     private func processXCI(dataProvider: @escaping DataProvider) throws -> (PrettyPrintable & JSONSerializable)? {
         let parser = XCIParser(dataProvider: dataProvider)
         try parser.parse()
@@ -86,20 +98,7 @@ struct HactoolSwift: ParsableCommand {
         }
         return parser
     }
-
-    private func processNCA(dataProvider: @escaping DataProvider, keyset: Keyset) throws -> (PrettyPrintable & JSONSerializable)? {
-        let parser = NCAParser(dataProvider: dataProvider, keyset: keyset)
-        try parser.parse()
-        if let outdirPath = self.outdir {
-            let extractor = FileExtractor(outputDirectory: URL(fileURLWithPath: outdirPath))
-            for i in 0..<4 where parser.header.sectionEntries[i].size > 0 {
-                print("\nExtracting Section \(i)...")
-                try parser.extractSection(i, to: extractor)
-            }
-        }
-        return parser
-    }
-
+    
     func run() throws {
         var keyset: Keyset? = nil
         if !self.keyset.isEmpty {

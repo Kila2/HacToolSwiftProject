@@ -3,7 +3,8 @@ import XCTest
 
 final class NCATests: XCTestCase {
     var keyset: Keyset!
-    var ncaData: Data!
+    var ncaDataProvider: DataProvider!
+    var ncaDataSize: UInt64!
 
     override func setUpWithError() throws {
         // This test requires a valid prod.keys file and a sample NCA.
@@ -18,11 +19,23 @@ final class NCATests: XCTestCase {
         guard let url = Bundle.module.url(forResource: "sample", withExtension: "nca", subdirectory: "Resources") else {
             throw XCTSkip("Test NCA file 'sample.nca' not found in Tests/Resources/ folder.")
         }
-        ncaData = try Data(contentsOf: url)
+        
+        // Use FileHandle for testing to match the main app's logic
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        self.ncaDataSize = try fileHandle.seekToEnd()
+        
+        self.ncaDataProvider = { (offset: UInt64, size: Int) throws -> Data in
+            try fileHandle.seek(toOffset: offset)
+            guard let data = try fileHandle.read(upToCount: size), data.count == size else {
+                throw ParserError.dataOutOfBounds(reason: "Test read failed.")
+            }
+            return data
+        }
     }
 
     func testNCAParsingAndDecryption() throws {
-        let parser = NCAParser(data: ncaData, keyset: keyset)
+        // Updated to use the DataProvider initializer
+        let parser = NCAParser(dataProvider: ncaDataProvider, keyset: keyset)
         try parser.parse()
 
         XCTAssertEqual(parser.header.magic, "NCA3")
@@ -41,8 +54,6 @@ final class NCATests: XCTestCase {
         let decryptedBytes = try parser.readDecryptedData(sectionIndex: sectionIndex, offset: 0, size: 16)
         XCTAssertEqual(decryptedBytes.count, 16)
         
-        // A simple sanity check: if decryption failed spectacularly, it might still be all zeros or all FFs.
-        // A properly decrypted block is unlikely to be this.
         XCTAssertNotEqual(decryptedBytes, Data(repeating: 0, count: 16))
         XCTAssertNotEqual(decryptedBytes, Data(repeating: 0xFF, count: 16))
     }

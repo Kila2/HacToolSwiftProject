@@ -9,8 +9,17 @@ final class XCITests: XCTestCase {
             throw XCTSkip("Test XCI file 'sample.xci' not found in Tests/Resources/ folder.")
         }
         
-        let xciData = try Data(contentsOf: url)
-        let parser = XCIParser(data: xciData)
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        let dataProvider: DataProvider = { (offset, size) in
+            try fileHandle.seek(toOffset: offset)
+            guard let data = try fileHandle.read(upToCount: size), data.count == size else {
+                throw ParserError.dataOutOfBounds(reason: "Test read failed.")
+            }
+            return data
+        }
+        
+        // Updated to use the DataProvider initializer
+        let parser = XCIParser(dataProvider: dataProvider)
         
         try parser.parse()
         

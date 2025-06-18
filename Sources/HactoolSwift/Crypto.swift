@@ -1,5 +1,4 @@
 import Foundation
-import Crypto
 import CryptoSwift
 
 typealias Key = Data
@@ -123,7 +122,8 @@ enum Crypto {
     }
 }
 
-private enum GF128 {
+// FIXED: Changed from `private` to `internal` (default) so tests can access it.
+enum GF128 {
     static func xts_gf_mult(_ x: Data, by power: Int) -> Data {
         if power == 0 { return x }
         var result = x
