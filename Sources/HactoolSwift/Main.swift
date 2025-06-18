@@ -29,42 +29,29 @@ struct HactoolSwift: ParsableCommand {
     @Argument(help: "The input file path.")
     var filePath: String
     
-    private func processNCA(data: Data, keyset: Keyset) throws -> (PrettyPrintable & JSONSerializable)? {
-        let parser = NCAParser(data: data, keyset: keyset)
-        try parser.parse()
-        if let outdirPath = self.outdir {
-            let extractor = FileExtractor(outputDirectory: URL(fileURLWithPath: outdirPath))
-            for i in 0..<4 where parser.header.sectionEntries[i].size > 0 {
-                print("\nExtracting Section \(i)...")
-                try parser.extractSection(i, to: extractor)
-            }
-        }
-        return parser
-    }
-    
-    private func processPFS0(data: Data) throws -> (PrettyPrintable & JSONSerializable)? {
-        let partition = try PFS0Parser.parse(data: data)
+    // Marked as @escaping to fix compiler error
+    private func processPFS0(dataProvider: @escaping DataProvider) throws -> (PrettyPrintable & JSONSerializable)? {
+        let partition = try PFS0Parser.parse(dataProvider: dataProvider)
         if let outdirPath = self.outdir {
             try partition.extractFiles(to: FileExtractor(outputDirectory: URL(fileURLWithPath: outdirPath)))
         }
         return partition
     }
     
-    private func processXCI(data: Data) throws -> (PrettyPrintable & JSONSerializable)? {
-        let parser = XCIParser(data: data)
+    // Marked as @escaping to fix compiler error
+    private func processXCI(dataProvider: @escaping DataProvider) throws -> (PrettyPrintable & JSONSerializable)? {
+        let parser = XCIParser(dataProvider: dataProvider)
         try parser.parse()
 
         if let outdirPath = self.outdir {
             let outputDirectoryURL = URL(fileURLWithPath: outdirPath)
 
-            // Case 1: User wants to extract a SINGLE, specific partition.
             if let requestedPartitionName = self.partition?.lowercased() {
                 print("Attempting to extract user-specified partition: '\(requestedPartitionName)'...")
                 if let partition = parser.partitions[requestedPartitionName] {
                     if partition.content.files.isEmpty {
                         print("Partition '\(requestedPartitionName)' is empty. Nothing to extract.")
                     } else {
-                        // Extract to a subdirectory named after the partition.
                         let extractor = FileExtractor(outputDirectory: outputDirectoryURL.appendingPathComponent(partition.name))
                         print("  -> Outputting to subdirectory: '\(partition.name)'")
                         try partition.content.extractFiles(to: extractor)
@@ -73,17 +60,13 @@ struct HactoolSwift: ParsableCommand {
                     print("Error: Partition '\(requestedPartitionName)' not found in the XCI file.")
                 }
             } else {
-                // Case 2: Default behavior - extract ALL non-empty partitions.
                 print("Extracting all found partitions to '\(outdirPath)'...")
                 let partitionOrder = ["root", "update", "normal", "secure", "logo"]
                 var foundPartitions = false
 
                 for name in partitionOrder {
                     if let partition = parser.partitions[name] {
-                        // Skip empty partitions like 'update' and 'normal' in many XCIs.
-                        if partition.content.files.isEmpty {
-                            continue
-                        }
+                        if partition.content.files.isEmpty { continue }
                         
                         foundPartitions = true
                         print("\n--- Extracting '\(name)' partition ---")
@@ -103,11 +86,22 @@ struct HactoolSwift: ParsableCommand {
         }
         return parser
     }
-    
+
+    private func processNCA(dataProvider: @escaping DataProvider, keyset: Keyset) throws -> (PrettyPrintable & JSONSerializable)? {
+        let parser = NCAParser(dataProvider: dataProvider, keyset: keyset)
+        try parser.parse()
+        if let outdirPath = self.outdir {
+            let extractor = FileExtractor(outputDirectory: URL(fileURLWithPath: outdirPath))
+            for i in 0..<4 where parser.header.sectionEntries[i].size > 0 {
+                print("\nExtracting Section \(i)...")
+                try parser.extractSection(i, to: extractor)
+            }
+        }
+        return parser
+    }
+
     func run() throws {
         var keyset: Keyset? = nil
-        // Keyset is only needed for NCA, but other types might need it in the future.
-        // We load it if the keyset path is provided.
         if !self.keyset.isEmpty {
             let loadedKeyset = Keyset()
             do {
@@ -121,9 +115,24 @@ struct HactoolSwift: ParsableCommand {
         }
        
         let fileURL = URL(fileURLWithPath: filePath)
-        guard let fileData = try? Data(contentsOf: fileURL) else {
-            print("Error: Failed to load file at \(filePath)")
+        guard let fileHandle = try? FileHandle(forReadingFrom: fileURL) else {
+            print("Error: Failed to open file for reading at \(filePath)")
             throw ExitCode.failure
+        }
+        defer {
+            try? fileHandle.close()
+        }
+
+        let dataProvider: DataProvider = { (offset: UInt64, size: Int) throws -> Data in
+            if #available(macOS 13.0, *) {
+                try fileHandle.seek(toOffset: offset)
+            } else {
+                fileHandle.seek(toFileOffset: offset)
+            }
+            guard let data = try fileHandle.read(upToCount: size), data.count == size else {
+                 throw ParserError.dataOutOfBounds(reason: "Failed to read \(size) bytes at offset \(offset).")
+            }
+            return data
         }
         
         var parsedObject: (PrettyPrintable & JSONSerializable)?
@@ -135,11 +144,11 @@ struct HactoolSwift: ParsableCommand {
                     print("Error: --keyset is required for NCA parsing.")
                     throw ExitCode.failure
                 }
-                parsedObject = try processNCA(data: fileData, keyset: keyset)
+                parsedObject = try processNCA(dataProvider: dataProvider, keyset: keyset)
             case "nsp":
-                parsedObject = try processPFS0(data: fileData)
+                parsedObject = try processPFS0(dataProvider: dataProvider)
             case "xci":
-                parsedObject = try processXCI(data: fileData)
+                parsedObject = try processXCI(dataProvider: dataProvider)
             default:
                 print("Error: Unsupported file type '\(type)'. Supported types are: nca, nsp, xci.")
                 throw ExitCode.failure

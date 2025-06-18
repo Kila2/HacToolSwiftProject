@@ -43,15 +43,15 @@ struct NCAHeader {
 }
 
 class NCAParser: PrettyPrintable, JSONSerializable {
-    let data: Data
+    let dataProvider: DataProvider
     let keyset: Keyset
     var header: NCAHeader!
     private var decryptedSectionKeys: [Data] = []
     private var decryptedHeaderData: Data!
     private var sectionContent: [Int: (PrettyPrintable & JSONSerializable)] = [:]
     
-    init(data: Data, keyset: Keyset) {
-        self.data = data
+    init(dataProvider: @escaping DataProvider, keyset: Keyset) {
+        self.dataProvider = dataProvider
         self.keyset = keyset
     }
 
@@ -62,9 +62,9 @@ class NCAParser: PrettyPrintable, JSONSerializable {
     }
 
      private func parseAndDecryptHeader() throws {
-        guard data.count >= 0xC00 else { throw ParserError.fileTooShort(reason: "NCA file smaller than header.") }
+        // Read just the header from the file
+        let rawHeaderData = try dataProvider(0, 0xC00)
         
-        let rawHeaderData = data.subdata(in: 0..<0xC00)
         var xtsKey = keyset.headerKey
         if xtsKey.count == 16 { xtsKey.append(xtsKey) }
         guard xtsKey.count == 32 else { throw CryptoError.invalidKeySize }
@@ -100,7 +100,7 @@ class NCAParser: PrettyPrintable, JSONSerializable {
         for i in 0..<4 {
             let mediaStartOffset: UInt32 = try readLE(from: d, at: currentOffset)
             let mediaEndOffset: UInt32 = try readLE(from: d, at: currentOffset + 4)
-            currentOffset += 16 // Advance past the whole entry (8 bytes of reserved)
+            currentOffset += 16
             
             if mediaStartOffset > 0 {
                 let fsHeaderOffset = 0x400 + (i * 0x200)
@@ -132,13 +132,17 @@ class NCAParser: PrettyPrintable, JSONSerializable {
             guard header.sectionEntries[i].size > 0 else { continue }
             let section = header.sectionEntries[i]
 
+            // Create a specialized data provider for this section, which handles decryption on the fly.
+            let sectionDataProvider: DataProvider = { (offset: UInt64, size: Int) throws -> Data in
+                return try self.readDecryptedData(sectionIndex: i, offset: offset, size: size)
+            }
+
             switch section.fsType {
             case 2: // PFS0
-                let sectionData = try readDecryptedData(sectionIndex: i, offset: 0, size: Int(section.size))
-                let pfs0Partition = try PFS0Parser.parse(data: sectionData)
+                let pfs0Partition = try PFS0Parser.parse(dataProvider: sectionDataProvider)
                 sectionContent[i] = pfs0Partition
             case 3: // RomFS
-                let romfsParser = RomFSParser(dataProvider: { try self.readDecryptedData(sectionIndex: i, offset: $0, size: $1) })
+                let romfsParser = RomFSParser(dataProvider: sectionDataProvider)
                 try romfsParser.parse()
                 sectionContent[i] = romfsParser
             default:
@@ -152,8 +156,9 @@ class NCAParser: PrettyPrintable, JSONSerializable {
         let section = header.sectionEntries[sectionIndex]
         guard section.size > 0, offset + UInt64(size) <= section.size else { throw ParserError.dataOutOfBounds(reason: "Read out of bounds for section \(sectionIndex).") }
         
+        // Read encrypted data from the main file provider
         let fileOffset = section.offset + offset
-        let encryptedData = data.subdata(in: Int(fileOffset)..<(Int(fileOffset) + size))
+        let encryptedData = try dataProvider(fileOffset, size)
         
         let key1 = decryptedSectionKeys[sectionIndex]
         

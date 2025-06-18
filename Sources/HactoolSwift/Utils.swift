@@ -1,15 +1,11 @@
+import Foundation
+
+// MARK: - Global Type Alias for Data Provider
+typealias DataProvider = (UInt64, Int) throws -> Data
+
 // MARK: - Global Parsing Helpers
 
 /// Reads a little-endian integer of type T from a Data buffer at a specific offset.
-/// This version uses manual bit-shifting for maximum reliability.
-import Foundation
-
-// MARK: - Error Handling
-
-// MARK: - DataReader (Restored and Corrected)
-
-// MARK: - Data Hex Extension
-
 func readLE<T: FixedWidthInteger>(from data: Data, at offset: Int) throws -> T {
     let requiredSize = MemoryLayout<T>.size
     guard offset + requiredSize <= data.count else {
@@ -28,6 +24,8 @@ func readLE<T: FixedWidthInteger>(from data: Data, at offset: Int) throws -> T {
 
     return value
 }
+
+// MARK: - Error Handling
 enum ParserError: Error, LocalizedError {
     case fileTooShort(reason: String)
     case invalidMagic(expected: String, found: String)
@@ -47,6 +45,8 @@ enum ParserError: Error, LocalizedError {
         }
     }
 }
+
+// MARK: - Data Hex Extension
 extension Data {
     func hexEncodedString() -> String {
         return map { String(format: "%02hhx", $0) }.joined()

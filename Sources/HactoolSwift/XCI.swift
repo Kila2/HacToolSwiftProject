@@ -42,7 +42,7 @@ struct XCIPartition {
 }
 
 class XCIParser: PrettyPrintable, JSONSerializable {
-    let data: Data
+    let dataProvider: DataProvider
     var header: XCIHeader!
     var partitions: [String: XCIPartition] = [:]
     
@@ -50,17 +50,13 @@ class XCIParser: PrettyPrintable, JSONSerializable {
         return partitions["secure"]?.content
     }
 
-    init(data: Data) {
-        self.data = data
+    init(dataProvider: @escaping DataProvider) {
+        self.dataProvider = dataProvider
     }
     
     func parse() throws {
         // --- Step 1: Read and parse the XCI Header ---
-        guard data.count >= 0x200 else {
-            throw ParserError.fileTooShort(reason: "XCI file smaller than header size (0x200 bytes).")
-        }
-        
-        let headerData = data.subdata(in: 0..<0x200)
+        let headerData = try dataProvider(0, 0x200)
 
         let magicRaw: UInt32 = try readLE(from: headerData, at: 0x100)
         let magicData = withUnsafeBytes(of: magicRaw) { Data($0) }
@@ -85,13 +81,9 @@ class XCIParser: PrettyPrintable, JSONSerializable {
         guard rootHfs0Offset > 0 && rootHfs0Size > 0 else {
             throw ParserError.unknownFormat("Root HFS0 partition has zero offset or size in XCI header.")
         }
-        guard rootHfs0Offset + rootHfs0Size <= UInt64(data.count) else {
-            throw ParserError.dataOutOfBounds(reason: "Root HFS0 partition is out of file bounds.")
-        }
-
+        
         // --- Step 2: Parse the 'root' HFS0 partition as a "metadata-only" map ---
-        let rootHfs0Data = data.subdata(in: Int(rootHfs0Offset)..<Int(rootHfs0Offset + rootHfs0Size))
-        let rootPartitionMap = try PFS0Parser.parse(data: rootHfs0Data, magic: "HFS0", loadFileData: false)
+        let rootPartitionMap = try PFS0Parser.parse(dataProvider: dataProvider, baseOffset: rootHfs0Offset, magic: "HFS0", loadFileData: false)
         self.partitions["root"] = XCIPartition(name: "root", offset: rootHfs0Offset, content: rootPartitionMap)
 
         // --- Step 3: Iterate through the map to find and parse actual partitions using the correct offset formula ---
@@ -106,15 +98,8 @@ class XCIParser: PrettyPrintable, JSONSerializable {
                 
                 guard partitionSize > 0 else { continue }
                 
-                guard partitionAbsoluteOffset + partitionSize <= UInt64(data.count) else {
-                    print("Warning: Partition '\(partitionName)' is out of file bounds. Skipping.")
-                    continue
-                }
-                
-                let partitionData = data.subdata(in: Int(partitionAbsoluteOffset)..<Int(partitionAbsoluteOffset + partitionSize))
-                
                 do {
-                    let contentPartition = try PFS0Parser.parse(data: partitionData, magic: "HFS0")
+                    let contentPartition = try PFS0Parser.parse(dataProvider: dataProvider, baseOffset: partitionAbsoluteOffset, magic: "HFS0")
                     self.partitions[partitionName] = XCIPartition(name: partitionName, offset: partitionAbsoluteOffset, content: contentPartition)
                 } catch {
                      print("Warning: Failed to parse partition '\(partitionName)'. It might be corrupt. Error: \(error.localizedDescription)")
@@ -152,7 +137,6 @@ class XCIParser: PrettyPrintable, JSONSerializable {
         let partitionOrder = ["root", "update", "normal", "secure", "logo"]
         for name in partitionOrder {
             if let partition = partitions[name] {
-                // FIXED: Removed leading \n to prevent blank lines between partitions.
                 output += "\(indent)\(name.capitalized) Partition:\n"
                 
                 let subIndent = "  " + indent
@@ -172,7 +156,6 @@ class XCIParser: PrettyPrintable, JSONSerializable {
                     for (i, entry) in content.files.enumerated() {
                         let linePrefix = (i == 0) ? filesHeader : filesIndent
                         
-                        // FIXED: Use "rootpt" for the root partition's display name.
                         let partitionDisplayName = (partition.name == "root") ? "rootpt" : partition.name
                         let fullName = "\(partitionDisplayName):/\(entry.name)"
                         
