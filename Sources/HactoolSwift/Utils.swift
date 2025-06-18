@@ -5,16 +5,16 @@ typealias DataProvider = (UInt64, Int) throws -> Data
 
 // MARK: - Global Parsing Helpers
 
-/// Reads a little-endian integer of type T from a Data buffer at a specific offset.
+// OLD version, works on Data object
 func readLE<T: FixedWidthInteger>(from data: Data, at offset: Int) throws -> T {
     let requiredSize = MemoryLayout<T>.size
     guard offset + requiredSize <= data.count else {
         throw ParserError.dataOutOfBounds(
-            reason:
-                "Attempted to read \(T.self) at offset \(offset) which is out of bounds for data size \(data.count)."
+            reason: "Attempted to read \(T.self) at offset \(offset) which is out of bounds for data size \(data.count)."
         )
     }
 
+    // This creates a temporary Data object, which we want to avoid.
     let bytes = data.subdata(in: offset..<(offset + requiredSize))
 
     var value: T = 0
@@ -24,6 +24,20 @@ func readLE<T: FixedWidthInteger>(from data: Data, at offset: Int) throws -> T {
 
     return value
 }
+
+// NEW version, works directly on a buffer pointer, avoiding data copies.
+func readLE<T: FixedWidthInteger>(from buffer: UnsafeRawBufferPointer, at offset: Int) throws -> T {
+    let requiredSize = MemoryLayout<T>.size
+    guard offset + requiredSize <= buffer.count else {
+        throw ParserError.dataOutOfBounds(
+            reason: "Attempted to read \(T.self) at offset \(offset) which is out of bounds for buffer size \(buffer.count)."
+        )
+    }
+    // Directly load from the memory buffer. No copies.
+    // The `.littleEndian` property handles the byte swapping to match the host system's endianness.
+    return buffer.load(fromByteOffset: offset, as: T.self).littleEndian
+}
+
 
 // MARK: - Error Handling
 enum ParserError: Error, LocalizedError {

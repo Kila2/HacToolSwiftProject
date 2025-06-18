@@ -1,15 +1,14 @@
 import Foundation
 
-// Represents the XCI header structure based on xci.h and SwitchBrew docs
 struct XCIHeader {
-    let headerSig: Data       // Offset 0x0, Size 0x100
-    let magic: String         // Offset 0x100, "HEAD"
-    let cartType: UInt8       // Offset 0x10D
-    let rawCartSize: UInt64   // Offset 0x118
-    let reversedIV: Data      // Offset 0x120, Size 0x10
-    let hfs0Offset: UInt64    // Offset 0x130
-    let hfs0HeaderSize: UInt64// Offset 0x138
-    let encryptedData: Data   // Offset 0x190, Size 0x70
+    let headerSig: Data
+    let magic: String
+    let cartType: UInt8
+    let rawCartSize: UInt64
+    let reversedIV: Data
+    let hfs0Offset: UInt64
+    let hfs0HeaderSize: UInt64
+    let encryptedData: Data
 
     var iv: Data {
         return Data(reversedIV.reversed())
@@ -17,27 +16,20 @@ struct XCIHeader {
 
     var cartridgeTypeString: String {
         switch cartType {
-        case 0xFA: return "1GB"
-        case 0xF8: return "2GB"
-        case 0xF0: return "4GB"
-        case 0xE0: return "8GB"
-        case 0xE1: return "16GB"
-        case 0xE2: return "32GB"
+        case 0xFA: return "1GB"; case 0xF8: return "2GB"; case 0xF0: return "4GB";
+        case 0xE0: return "8GB"; case 0xE1: return "16GB"; case 0xE2: return "32GB"
         default: return "Unknown/Invalid"
         }
     }
     
-    // Hactool's `media_to_real(size + 1)` is `(size + 1) << 9`, which is `(size + 1) * 512`
     var cartridgeSizeValue: UInt64 {
         return (rawCartSize + 1) * 512
     }
 }
 
-
-// Represents a fully parsed partition found inside the XCI
 struct XCIPartition {
     let name: String
-    let offset: UInt64 // Store the absolute offset for printing
+    let offset: UInt64
     let content: PFS0Partition
 }
 
@@ -55,25 +47,29 @@ class XCIParser: PrettyPrintable, JSONSerializable {
     }
     
     func parse() throws {
-        // --- Step 1: Read and parse the XCI Header ---
         let headerData = try dataProvider(0, 0x200)
 
-        let magicRaw: UInt32 = try readLE(from: headerData, at: 0x100)
-        let magicData = withUnsafeBytes(of: magicRaw) { Data($0) }
-        guard let magicString = String(data: magicData, encoding: .ascii), magicString == "HEAD" else {
-            throw ParserError.invalidMagic(expected: "HEAD", found: String(data: magicData, encoding: .ascii) ?? "Unreadable")
-        }
+        // FIXED: Explicitly type the buffer parameter
+        try headerData.withUnsafeBytes { (headerBuffer: UnsafeRawBufferPointer) in
+            let magicRaw: UInt32 = try readLE(from: headerBuffer, at: 0x100)
+            let magicData = withUnsafeBytes(of: magicRaw) { Data($0) }
+            guard let magicString = String(data: magicData, encoding: .ascii), magicString == "HEAD" else {
+                throw ParserError.invalidMagic(expected: "HEAD", found: String(data: magicData, encoding: .ascii) ?? "Unreadable")
+            }
 
-        self.header = XCIHeader(
-            headerSig: headerData.subdata(in: 0x0..<0x100),
-            magic: magicString,
-            cartType: try readLE(from: headerData, at: 0x10D),
-            rawCartSize: try readLE(from: headerData, at: 0x118),
-            reversedIV: headerData.subdata(in: 0x120..<0x130),
-            hfs0Offset: try readLE(from: headerData, at: 0x130),
-            hfs0HeaderSize: try readLE(from: headerData, at: 0x138),
-            encryptedData: headerData.subdata(in: 0x190..<0x200)
-        )
+            // Creating a Data slice is efficient (no copy) for long-term storage in the struct.
+            // We'll use Data() to create a copy from the slice.
+            self.header = XCIHeader(
+                headerSig: Data(headerBuffer[0x0..<0x100]),
+                magic: magicString,
+                cartType: try readLE(from: headerBuffer, at: 0x10D),
+                rawCartSize: try readLE(from: headerBuffer, at: 0x118),
+                reversedIV: Data(headerBuffer[0x120..<0x130]),
+                hfs0Offset: try readLE(from: headerBuffer, at: 0x130),
+                hfs0HeaderSize: try readLE(from: headerBuffer, at: 0x138),
+                encryptedData: Data(headerBuffer[0x190..<0x200])
+            )
+        }
         
         let rootHfs0Offset = header.hfs0Offset
         let rootHfs0Size = header.hfs0HeaderSize
@@ -82,11 +78,9 @@ class XCIParser: PrettyPrintable, JSONSerializable {
             throw ParserError.unknownFormat("Root HFS0 partition has zero offset or size in XCI header.")
         }
         
-        // --- Step 2: Parse the 'root' HFS0 partition as a "metadata-only" map ---
         let rootPartitionMap = try PFS0Parser.parse(dataProvider: dataProvider, baseOffset: rootHfs0Offset, magic: "HFS0", loadFileData: false)
         self.partitions["root"] = XCIPartition(name: "root", offset: rootHfs0Offset, content: rootPartitionMap)
 
-        // --- Step 3: Iterate through the map to find and parse actual partitions using the correct offset formula ---
         let rootMapHeaderSize = 16 + (Int(rootPartitionMap.header.fileCount) * 64) + Int(rootPartitionMap.header.stringTableSize)
 
         for fileEntry in rootPartitionMap.files {
