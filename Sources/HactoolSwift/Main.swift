@@ -11,7 +11,7 @@ struct HactoolSwift: ParsableCommand {
     @Option(name: .shortAndLong, help: "Path to your 'prod.keys' file.")
     var keyset: String
     
-    @Option(name: .shortAndLong, help: "Input file type [nca, nsp, nsz, xci].")
+    @Option(name: .shortAndLong, help: "Input file type [nca, nsp, nsz, xci, xcz].")
     var type: String
     
     @Option(name: .shortAndLong, help: "Output format for console [pretty, json]. Default is pretty.")
@@ -150,10 +150,14 @@ struct HactoolSwift: ParsableCommand {
                 fallthrough
             case "nsp":
                 parsedObject = try processPFS0(dataProvider: dataProvider)
+            case "xcz":
+                print("Info: XCZ file type selected. Treating as an XCI container.")
+                print("      Note: Contained NCZ files will be listed/extracted but not decompressed.")
+                fallthrough
             case "xci":
                 parsedObject = try processXCI(dataProvider: dataProvider)
             default:
-                print("Error: Unsupported file type '\(type)'. Supported types are: nca, nsp, nsz, xci.")
+                print("Error: Unsupported file type '\(type)'. Supported types are: nca, nsp, nsz, xci, xcz.")
                 throw ExitCode.failure
             }
         } catch {
