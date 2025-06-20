@@ -18,19 +18,36 @@ struct PFS0Partition: PrettyPrintable, JSONSerializable {
     let files: [PFS0FileEntry]
     
     func toPrettyString(indent: String) -> String {
-        var output = ""
+        // Create a title based on the magic string
         let magicData = withUnsafeBytes(of: header.magic) { Data($0) }
         let magicString = String(data: magicData, encoding: .ascii) ?? "????"
-        output += "\(indent)Magic:             \(magicString)\n"
-        output += "\(indent)File Count:        \(header.fileCount)\n"
+        var output = "\(indent)\(magicString):\n"
+        
+        // Use padded labels for alignment, similar to XCI output
+        let magicLabel = "Magic:".padding(toLength: 36, withPad: " ", startingAt: 0)
+        output += "\(indent)\(magicLabel)\(magicString)\n"
+        
+        let countLabel = "Number of files:".padding(toLength: 36, withPad: " ", startingAt: 0)
+        output += "\(indent)\(countLabel)\(header.fileCount)\n"
         
         if !files.isEmpty {
-            output += "\(indent)Files:\n"
-            for entry in files {
-                let paddedName = entry.name.padding(toLength: 56, withPad: " ", startingAt: 0)
+            let filesHeader = "Files:".padding(toLength: 36, withPad: " ", startingAt: 0)
+            let filesIndent = String(repeating: " ", count: filesHeader.count)
+            
+            for (i, entry) in files.enumerated() {
+                // Determine if we should use the header or just indentation
+                let linePrefix = (i == 0) ? filesHeader : filesIndent
+                
+                // Add the "pfs0:/" prefix to match original hactool
+                let fullName = "pfs0:/\(entry.name)"
+                
+                // Pad the full name to align the offset columns
+                let paddedName = fullName.padding(toLength: 60, withPad: " ", startingAt: 0)
                 let startOffset = entry.offset
                 let endOffset = entry.offset + entry.size
-                output += String(format: "\(indent)  %@ %012llx-%012llx\n", paddedName, startOffset, endOffset)
+                
+                // Format the final output line
+                output += String(format: "\(indent)%@%@ %012llx-%012llx\n", linePrefix, paddedName, startOffset, endOffset)
             }
         }
         return output
