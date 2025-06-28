@@ -3,51 +3,64 @@ import Foundation
 // MARK: - Global Type Alias for Data Provider
 typealias DataProvider = (UInt64, Int) throws -> Data
 
+/// Reads a UInt32 from the buffer and interprets it as a 4-character ASCII string.
+/// - Parameters:
+///   - buffer: The UnsafeRawBufferPointer to read from.
+///   - offset: The byte offset to start reading.
+/// - Returns: An optional String. Returns nil if the bytes do not form a valid ASCII string.
+/// - Throws: A ParserError if reading is out of bounds.
+func readMagic(from buffer: UnsafeRawBufferPointer, at offset: Int) throws -> String? {
+    // 1. Use our trusted readLE function to get the 32-bit integer
+    let magicRaw: UInt32 = try readLE(from: buffer, at: offset)
+    
+    // 2. We need to get the raw bytes of this integer to convert it to a String.
+    //    withUnsafeBytes is a safe way to do this.
+    var magicForData = magicRaw
+    let magicData = withUnsafeBytes(of: &magicForData) { Data($0) }
+    
+    // 3. Attempt to create a String from these bytes using ASCII encoding.
+    return String(data: magicData, encoding: .ascii)
+}
+
 // MARK: - Global Parsing Helpers
-
-// OLD version, works on Data object
-func readLE<T: FixedWidthInteger>(from data: Data, at offset: Int) throws -> T {
-    let requiredSize = MemoryLayout<T>.size
-    guard offset + requiredSize <= data.count else {
-        throw ParserError.dataOutOfBounds(
-            reason: "Attempted to read \(T.self) at offset \(offset) which is out of bounds for data size \(data.count)."
-        )
-    }
-
-    // This creates a temporary Data object, which we want to avoid.
-    let bytes = data.subdata(in: offset..<(offset + requiredSize))
-
-    var value: T = 0
-    for (index, byte) in bytes.enumerated() {
-        value |= T(byte) << (index * 8)
-    }
-
-    return value
-}
-
-// NEW version, works directly on a buffer pointer, avoiding data copies.
+// 在你的项目中，找到并替换/定义 readLE 函数
+// 这是最终的、最安全、最兼容的版本，使用内存复制来解决对齐问题。
 func readLE<T: FixedWidthInteger>(from buffer: UnsafeRawBufferPointer, at offset: Int) throws -> T {
-    let requiredSize = MemoryLayout<T>.size
-    guard offset + requiredSize <= buffer.count else {
-        throw ParserError.dataOutOfBounds(
-            reason: "Attempted to read \(T.self) at offset \(offset) which is out of bounds for buffer size \(buffer.count)."
-        )
+    let size = MemoryLayout<T>.size
+    guard offset >= 0 && offset + size <= buffer.count else {
+        throw ParserError.dataOutOfBounds(reason: "Read for \(T.self) at offset \(offset) out of bounds for buffer size \(buffer.count).")
     }
-    // Directly load from the memory buffer. No copies.
-    // The `.littleEndian` property handles the byte swapping to match the host system's endianness.
-    return buffer.load(fromByteOffset: offset, as: T.self).littleEndian
-}
 
+    // 1. 创建一个正确类型的、未初始化的变量。
+    //    由于它是在栈上创建的，Swift 保证它的地址是对齐的。
+    var value: T = 0
+    
+    // 2. 使用 withUnsafeMutableBytes 安全地获取这个变量的可变字节指针，这就是我们的目标缓冲区。
+    withUnsafeMutableBytes(of: &value) { destinationBuffer in
+        // 3. 计算源指针在 buffer 中的起始位置。
+        let sourceBuffer = UnsafeRawBufferPointer(rebasing: buffer[offset..<(offset + size)])
+        
+        // 4. 使用 memcpy 的 Swift 版本，将字节从源 buffer 复制到我们的目标变量中。
+        //    这个操作是逐字节复制，完全不关心源地址的对齐问题。
+        destinationBuffer.copyBytes(from: sourceBuffer)
+    }
+    
+    // 5. 此时 value 变量中已经包含了内存中的小端字节序数据，现在进行字节序转换。
+    return T(littleEndian: value)
+}
 
 // MARK: - Error Handling
-enum ParserError: Error, LocalizedError {
+enum ParserError: Error, LocalizedError, Equatable {
     case fileTooShort(reason: String)
     case invalidMagic(expected: String, found: String)
     case dataOutOfBounds(reason: String)
     case unknownFormat(String)
-
+    case general(String)
+    
     var errorDescription: String? {
         switch self {
+        case .general(let reason):
+            return "Parser gernal error \(reason)"
         case .fileTooShort(let reason):
             return "File is too short. \(reason)"
         case .invalidMagic(let expected, let found):

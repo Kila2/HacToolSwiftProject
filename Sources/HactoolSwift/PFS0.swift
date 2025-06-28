@@ -1,10 +1,6 @@
 import Foundation
 
 // --- Data Models (Value Types) ---
-struct PFS0Header {
-    let magic: UInt32, fileCount: UInt32, stringTableSize: UInt32, reserved: UInt32
-}
-
 struct PFS0FileEntry {
     let offset: UInt64, size: UInt64, stringTableOffset: UInt32
     let hashedSize: UInt32, reserved: UInt64, hash: Data
@@ -28,7 +24,7 @@ struct PFS0Partition: PrettyPrintable, JSONSerializable {
         output += "\(indent)\(magicLabel)\(magicString)\n"
         
         let countLabel = "Number of files:".padding(toLength: 36, withPad: " ", startingAt: 0)
-        output += "\(indent)\(countLabel)\(header.fileCount)\n"
+        output += "\(indent)\(countLabel)\(header.numFiles)\n"
         
         if !files.isEmpty {
             let filesHeader = "Files:".padding(toLength: 36, withPad: " ", startingAt: 0)
@@ -70,7 +66,7 @@ struct PFS0Partition: PrettyPrintable, JSONSerializable {
         }
         let magicData = withUnsafeBytes(of: header.magic) { Data($0) }
         let magicString = String(data: magicData, encoding: .ascii) ?? "????"
-        return [ "type": magicString, "file_count": header.fileCount, "string_table_size": header.stringTableSize, "files": filesJSON ]
+        return [ "type": magicString, "file_count": header.numFiles, "string_table_size": header.stringTableSize, "files": filesJSON ]
     }
 
     func extractFiles(to extractor: FileExtractor) throws {
@@ -103,7 +99,7 @@ enum PFS0Parser {
             let fileCount: UInt32 = try readLE(from: headerBuffer, at: 4)
             let stringTableSize: UInt32 = try readLE(from: headerBuffer, at: 8)
             let reserved: UInt32 = try readLE(from: headerBuffer, at: 12)
-            let header = PFS0Header(magic: readMagic, fileCount: fileCount, stringTableSize: stringTableSize, reserved: reserved)
+            let header = PFS0Header(magic: readMagic, numFiles: fileCount, stringTableSize: stringTableSize, reserved: reserved)
 
             let isHFS0 = (magic == "HFS0")
             let entrySize = isHFS0 ? 64 : 24

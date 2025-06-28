@@ -1,32 +1,5 @@
 import Foundation
 
-struct XCIHeader {
-    let headerSig: Data
-    let magic: String
-    let cartType: UInt8
-    let rawCartSize: UInt64
-    let reversedIV: Data
-    let hfs0Offset: UInt64
-    let hfs0HeaderSize: UInt64
-    let encryptedData: Data
-
-    var iv: Data {
-        return Data(reversedIV.reversed())
-    }
-
-    var cartridgeTypeString: String {
-        switch cartType {
-        case 0xFA: return "1GB"; case 0xF8: return "2GB"; case 0xF0: return "4GB";
-        case 0xE0: return "8GB"; case 0xE1: return "16GB"; case 0xE2: return "32GB"
-        default: return "Unknown/Invalid"
-        }
-    }
-    
-    var cartridgeSizeValue: UInt64 {
-        return (rawCartSize + 1) * 512
-    }
-}
-
 struct XCIPartition {
     let name: String
     let offset: UInt64
@@ -51,24 +24,7 @@ class XCIParser: PrettyPrintable, JSONSerializable {
 
         // FIXED: Explicitly type the buffer parameter
         try headerData.withUnsafeBytes { (headerBuffer: UnsafeRawBufferPointer) in
-            let magicRaw: UInt32 = try readLE(from: headerBuffer, at: 0x100)
-            let magicData = withUnsafeBytes(of: magicRaw) { Data($0) }
-            guard let magicString = String(data: magicData, encoding: .ascii), magicString == "HEAD" else {
-                throw ParserError.invalidMagic(expected: "HEAD", found: String(data: magicData, encoding: .ascii) ?? "Unreadable")
-            }
-
-            // Creating a Data slice is efficient (no copy) for long-term storage in the struct.
-            // We'll use Data() to create a copy from the slice.
-            self.header = XCIHeader(
-                headerSig: Data(headerBuffer[0x0..<0x100]),
-                magic: magicString,
-                cartType: try readLE(from: headerBuffer, at: 0x10D),
-                rawCartSize: try readLE(from: headerBuffer, at: 0x118),
-                reversedIV: Data(headerBuffer[0x120..<0x130]),
-                hfs0Offset: try readLE(from: headerBuffer, at: 0x130),
-                hfs0HeaderSize: try readLE(from: headerBuffer, at: 0x138),
-                encryptedData: Data(headerBuffer[0x190..<0x200])
-            )
+            self.header = try XCIHeader.parse(from: headerBuffer);
         }
         
         let rootHfs0Offset = header.hfs0Offset
@@ -81,7 +37,7 @@ class XCIParser: PrettyPrintable, JSONSerializable {
         let rootPartitionMap = try PFS0Parser.parse(dataProvider: dataProvider, baseOffset: rootHfs0Offset, magic: "HFS0", loadFileData: false)
         self.partitions["root"] = XCIPartition(name: "root", offset: rootHfs0Offset, content: rootPartitionMap)
 
-        let rootMapHeaderSize = 16 + (Int(rootPartitionMap.header.fileCount) * 64) + Int(rootPartitionMap.header.stringTableSize)
+        let rootMapHeaderSize = 16 + (Int(rootPartitionMap.header.numFiles) * 64) + Int(rootPartitionMap.header.stringTableSize)
 
         for fileEntry in rootPartitionMap.files {
             let partitionName = fileEntry.name.lowercased().replacingOccurrences(of: ".hfs0", with: "")
@@ -115,7 +71,7 @@ class XCIParser: PrettyPrintable, JSONSerializable {
         output += "\(indent)Header Signature:                   \(sigLines.joined(separator: "\n\(indent)                                    "))\n"
         
         output += "\(indent)Cartridge Type:                     \(header.cartridgeTypeString)\n"
-        output += String(format: "\(indent)Cartridge Size:                     %012llx\n", header.cartridgeSizeValue)
+        output += String(format: "\(indent)Cartridge Size:                     %012llx\n", header.cartSizeRaw)
 
         output += "\(indent)Header IV:                          \(header.iv.hexEncodedString().uppercased())\n"
         
@@ -141,7 +97,7 @@ class XCIParser: PrettyPrintable, JSONSerializable {
                 
                 output += "\(subIndent)Magic:                          \(magicString)\n"
                 output += String(format: "\(subIndent)Offset:                         %012llx\n", partition.offset)
-                output += "\(subIndent)Number of files:                \(content.header.fileCount)\n"
+                output += "\(subIndent)Number of files:                \(content.header.numFiles)\n"
                 
                 if !content.files.isEmpty {
                     let filesHeader = "\(subIndent)Files:                          "
