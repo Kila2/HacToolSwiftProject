@@ -27,12 +27,12 @@ class NCAParser: PrettyPrintable, JSONSerializable {
         self.dataProvider = dataProvider
         self.keyset = keyset
     }
-
+    
     func parse() throws {
         try parseAndDecryptHeader()
         try decryptKeyArea()
     }
-
+    
     private func parseAndDecryptHeader() throws {
         print("\n--- Swift NCA Header Decryption Debug ---")
         let rawHeaderData = try dataProvider(0, 0xC00)
@@ -42,7 +42,7 @@ class NCAParser: PrettyPrintable, JSONSerializable {
         if xtsKey.count == 16 { xtsKey.append(xtsKey) }
         print("2. Header Key (XTS, 32 bytes): \(xtsKey.hexEncodedString())")
         guard xtsKey.count == 32 else { throw CryptoError.general("Invalid XTS key size") }
-
+        
         let decryptedFirstPass = try Crypto.aesXtsDecrypt(keyData: xtsKey, startSector: 0, sectorSize: 0x200, data: rawHeaderData.subdata(in: 0..<0x400))
         
         try decryptedFirstPass.withUnsafeBytes { (buffer: UnsafeRawBufferPointer)  in
@@ -53,7 +53,7 @@ class NCAParser: PrettyPrintable, JSONSerializable {
                 self.version = .nca3
                 print("   -> Detected NCA3 format.")
                 self.decryptedHeaderData = try Crypto.aesXtsDecrypt(keyData: xtsKey, startSector: 0, sectorSize: 0x200, data: rawHeaderData)
-
+                
             case "NCA2":
                 self.version = .nca2
                 print("   -> Detected NCA2 format.")
@@ -65,17 +65,17 @@ class NCAParser: PrettyPrintable, JSONSerializable {
                     tempFullHeader.append(decryptedFsHeader)
                 }
                 self.decryptedHeaderData = tempFullHeader
-
+                
             case "NCA0":
                 self.version = .nca0
                 throw ParserError.unknownFormat("NCA0 format is not supported yet.")
-
+                
             default:
                 self.version = .unknown
                 throw ParserError.invalidMagic(expected: "NCA3/NCA2", found: magicString ?? "Unreadable")
             }
         }
-
+        
         try parseDecryptedHeader(from: self.decryptedHeaderData)
     }
     
@@ -84,7 +84,7 @@ class NCAParser: PrettyPrintable, JSONSerializable {
             self.header = try NCAHeader.parse(from: buffer)
         }
     }
-
+    
     private func decryptKeyArea() throws {
         guard let decryptedHeaderData = self.decryptedHeaderData, let header = self.header else {
             throw ParserError.general("Header not parsed before decrypting key area.")
@@ -101,7 +101,7 @@ class NCAParser: PrettyPrintable, JSONSerializable {
             }
         }
     }
-
+    
     func readDecryptedData(sectionIndex: Int, offset: UInt64, size: Int) throws -> Data {
         guard sectionIndex < 4, let header = header else { throw ParserError.dataOutOfBounds(reason: "Invalid section index.") }
         let section = header.sectionEntries[sectionIndex]
@@ -127,9 +127,9 @@ class NCAParser: PrettyPrintable, JSONSerializable {
             
             var iv = Data(repeating: 0, count: 16)
             self.decryptedHeaderData.withUnsafeBytes { buffer in
-                 let sectionCtrOffset = 0x400 + (sectionIndex * 0x200) + 0x140
-                 let ctrData = Data(buffer[sectionCtrOffset..<(sectionCtrOffset + 8)])
-                 iv.replaceSubrange(0..<8, with: ctrData)
+                let sectionCtrOffset = 0x400 + (sectionIndex * 0x200) + 0x140
+                let ctrData = Data(buffer[sectionCtrOffset..<(sectionCtrOffset + 8)])
+                iv.replaceSubrange(0..<8, with: ctrData)
             }
             
             var blockCounter = (alignedStart / 16).bigEndian
@@ -143,53 +143,81 @@ class NCAParser: PrettyPrintable, JSONSerializable {
                 throw ParserError.dataOutOfBounds(reason: "Internal error: Slice calculation failed for CTR.")
             }
             return decryptedAlignedData.subdata(in: sliceStart..<sliceEnd)
-
+            
         case .xts:
-             let key2 = decryptedSectionKeys[sectionIndex + 2]
-             let sectionKey = key1 + key2
-             let sectorSize = 0x200
-             
-             let readStart = offset
-             let readEnd = offset + UInt64(size)
-             let alignedStart = (readStart / UInt64(sectorSize)) * UInt64(sectorSize)
-             let alignedEnd = ((readEnd + UInt64(sectorSize) - 1) / UInt64(sectorSize)) * UInt64(sectorSize)
-             let alignedReadSize = Int(alignedEnd - alignedStart)
-             
-             let fileOffsetForAlignedRead = UInt64(section.mediaOffset) + alignedStart
-             let encryptedAlignedData = try dataProvider(fileOffsetForAlignedRead, alignedReadSize)
-             let startSector = alignedStart / UInt64(sectorSize)
-             let decryptedAlignedData = try Crypto.aesXtsDecrypt(keyData: sectionKey, startSector: startSector, sectorSize: sectorSize, data: encryptedAlignedData)
-             
-             let sliceStart = Int(readStart - alignedStart)
-             let sliceEnd = sliceStart + size
-             guard sliceEnd <= decryptedAlignedData.count else {
-                 throw ParserError.dataOutOfBounds(reason: "Internal error: Slice calculation failed for XTS.")
-             }
-             return decryptedAlignedData.subdata(in: sliceStart..<sliceEnd)
-
+            let key2 = decryptedSectionKeys[sectionIndex + 2]
+            let sectionKey = key1 + key2
+            let sectorSize = 0x200
+            
+            let readStart = offset
+            let readEnd = offset + UInt64(size)
+            let alignedStart = (readStart / UInt64(sectorSize)) * UInt64(sectorSize)
+            let alignedEnd = ((readEnd + UInt64(sectorSize) - 1) / UInt64(sectorSize)) * UInt64(sectorSize)
+            let alignedReadSize = Int(alignedEnd - alignedStart)
+            
+            let fileOffsetForAlignedRead = UInt64(section.mediaOffset) + alignedStart
+            let encryptedAlignedData = try dataProvider(fileOffsetForAlignedRead, alignedReadSize)
+            let startSector = alignedStart / UInt64(sectorSize)
+            let decryptedAlignedData = try Crypto.aesXtsDecrypt(keyData: sectionKey, startSector: startSector, sectorSize: sectorSize, data: encryptedAlignedData)
+            
+            let sliceStart = Int(readStart - alignedStart)
+            let sliceEnd = sliceStart + size
+            guard sliceEnd <= decryptedAlignedData.count else {
+                throw ParserError.dataOutOfBounds(reason: "Internal error: Slice calculation failed for XTS.")
+            }
+            return decryptedAlignedData.subdata(in: sliceStart..<sliceEnd)
+            
         case .bktr:
             print("Warning: Unsupported crypto type \(header.cryptoType).")
             return try dataProvider(UInt64(section.mediaOffset) + offset, size)
         }
     }
     
+    fileprivate func format(label: String, value: Any, labelWidth: Int = 38) -> String {
+        let indentedLabel = "\(label):"
+        let paddedLabel = indentedLabel.padding(toLength: labelWidth, withPad: " ", startingAt: 0)
+        return "\(paddedLabel)\(value)\n"
+    }
+    
     func toPrettyString(indent: String) -> String {
         guard let header = header else { return "\(indent)NCA not parsed.\n" }
-        var output = "\(indent)--- NCA Summary (\(version)) ---\n"
-        output += String(format: "\(indent)Title ID: %016llX\n", header.titleId)
-        output += "\(indent)Content Type: \(header.contentType)\n"
-        output += "\(indent)Master Key Revision: \(header.cryptoType)\n"
-        for (i, section) in header.sectionEntries.enumerated() where section.size > 0 {
-            output += "\(indent)  Section \(i):\n"
-            output += String(format: "\(indent)    Offset: 0x%llx, Size: 0x%llx\n", section.mediaOffset, section.size)
-            let fsTypeString = String(describing: header.fsHeaders[i].fsType?.description ?? "Unknow")
-            output += "\(indent)    FS Type: \(fsTypeString)\n"
-            output += "\(indent)    Crypto: \(header.cryptoType)\n"
+        
+        var output = ""
+        output += "\(indent)--- NCA Header ---\n"
+        output += format(label: "\(indent)Magic", value: version)
+        output += format(label: "\(indent)Distribution Type", value: header.distribution == 1 ? "Cartridge" : "Digital")
+        output += format(label: "\(indent)Content Type", value: header.contentType)
+        output += format(label: "\(indent)Master Key Revision", value: header.cryptoType.description)
+        output += format(label: "\(indent)Key Area Encryption Key Index (KAEK)", value: header.kaekInd)
+        output += format(label: "\(indent)NCA Size", value: header.ncaSize, labelWidth: 38)
+        output += format(label: "\(indent)Title ID", value: String(format: "%016llX", header.titleId))
+        output += format(label: "\(indent)SDK Version", value: header.sdkVersion.string)
+        output += format(label: "\(indent)Rights ID", value: header.rightsId.hexEncodedString())
+        
+        output += "\n\(indent)Decrypted Section Keys:\n"
+        for i in 0..<4 {
+            output += format(label: "\(indent)  Section Key \(i)", value: decryptedSectionKeys[i].hexEncodedString())
+        }
+        
+        for i in 0..<4 {
+            let section = header.sectionEntries[i]
+            guard section.size > 0 else { continue }
+            let fsHeader = header.fsHeaders[i]
+            let fsTypeStr = fsHeader.fsType?.description ?? "None"
+            
+            output += "\n\(indent)--- Section \(i) (\(fsTypeStr)) ---\n"
+            // TODO 改成
+            output += format(label: "\(indent)Offset", value: section.startOffsetBytes, labelWidth: 38)
+            output += format(label: "\(indent)Size", value: section.size, labelWidth: 38)
+            output += format(label: "\(indent)Encryption Type", value: fsHeader.cryptType?.description ?? "None")
+            output += format(label: "\(indent)Filesystem Type", value: fsTypeStr)
+            output += format(label: "\(indent)Section Hash", value: header.sectionHashes[i].hexEncodedString())
+            
             if let content = sectionContent[i] {
-                output += content.toPrettyString(indent: indent + "      ")
+                output += content.toPrettyString(indent: indent + "  ")
             }
         }
-        output += "\(indent)--------------------\n"
+        output += "\(indent)---------------------\n"
         return output
     }
     
@@ -198,9 +226,13 @@ class NCAParser: PrettyPrintable, JSONSerializable {
         let sections = header.sectionEntries.enumerated().compactMap { (i, s) -> [String: Any]? in
             guard s.size > 0 else { return nil }
             var sectionJSON: [String: Any] = [
-                "section_index": i, "offset": String(format: "0x%llx", s.mediaOffset), "size": String(format: "0x%llx", s.size),
-                "fs_type_raw": String(describing: header.fsHeaders[i].fsType?.description ?? "Unknow"),
-                "crypto_type": "\(header.cryptoType)"
+                "section_index": i,
+                "offset": String(format: "0x%llx", s.startOffsetBytes),
+                "size": String(format: "0x%llx", s.size),
+                "fs_type": header.fsHeaders[i].fsType?.description ?? "None",
+                "crypto_type": header.fsHeaders[i].cryptType?.description ?? "None",
+                "decrypted_key": decryptedSectionKeys[i].hexEncodedString(),
+                "section_hash": header.sectionHashes[i].hexEncodedString()
             ]
             if let content = sectionContent[i] {
                 sectionJSON["content"] = content.toJSONObject(includeData: includeData)
@@ -211,11 +243,14 @@ class NCAParser: PrettyPrintable, JSONSerializable {
             "nca_version": "\(version)",
             "title_id": String(format: "%016llX", header.titleId),
             "content_type": "\(header.contentType)",
-            "master_key_revision": header.cryptoType,
+            "master_key_revision": header.cryptoType.description,
+            "kaek_index": header.kaekInd,
+            "sdk_version": header.sdkVersion.string,
+            "rights_id": header.rightsId.hexEncodedString(),
             "sections": sections
         ]
     }
-
+    
     func extractSection(_ sectionIndex: Int, to extractor: FileExtractor) throws {
         guard let content = sectionContent[sectionIndex] else {
             print("Section \(sectionIndex) was not parsed or is empty, cannot extract.")
@@ -227,7 +262,7 @@ class NCAParser: PrettyPrintable, JSONSerializable {
         } else if let romfsParser = content as? RomFSParser {
             try romfsParser.extractFiles(to: extractor)
         } else {
-             print("Section \(sectionIndex) has an unsupported filesystem type for extraction.")
+            print("Section \(sectionIndex) has an unsupported filesystem type for extraction.")
         }
     }
 }

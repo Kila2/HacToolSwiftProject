@@ -9,7 +9,6 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
-        .package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", from: "1.8.0"),
         .package(name: "mbedtls", path: "../mbedtls")
     ],
     targets: [
@@ -17,7 +16,6 @@ let package = Package(
             name: "HactoolSwift",
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                "CryptoSwift",
                 .product(name: "MbedTLS", package: "mbedtls")
             ],
             path: "Sources/HactoolSwift"
