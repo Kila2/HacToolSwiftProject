@@ -182,7 +182,7 @@ class NCAParser: PrettyPrintable, JSONSerializable {
         for (i, section) in header.sectionEntries.enumerated() where section.size > 0 {
             output += "\(indent)  Section \(i):\n"
             output += String(format: "\(indent)    Offset: 0x%llx, Size: 0x%llx\n", section.mediaOffset, section.size)
-            let fsTypeString = String(describing: header.fsHeaders[i].fsType?.description)
+            let fsTypeString = String(describing: header.fsHeaders[i].fsType?.description ?? "Unknow")
             output += "\(indent)    FS Type: \(fsTypeString)\n"
             output += "\(indent)    Crypto: \(header.cryptoType)\n"
             if let content = sectionContent[i] {
@@ -199,7 +199,7 @@ class NCAParser: PrettyPrintable, JSONSerializable {
             guard s.size > 0 else { return nil }
             var sectionJSON: [String: Any] = [
                 "section_index": i, "offset": String(format: "0x%llx", s.mediaOffset), "size": String(format: "0x%llx", s.size),
-                "fs_type_raw": String(describing: header.fsHeaders[i].fsType?.description),
+                "fs_type_raw": String(describing: header.fsHeaders[i].fsType?.description ?? "Unknow"),
                 "crypto_type": "\(header.cryptoType)"
             ]
             if let content = sectionContent[i] {

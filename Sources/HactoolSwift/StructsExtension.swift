@@ -257,9 +257,9 @@ extension NSO0Header: PrettyPrintable, JSONSerializable {
             "build_id": self.buildId.hexEncodedString(),
             "segments": segmentsJSON,
             "compressed_sizes": [
-                formatHex(self.compressedSizes.0),
-                formatHex(self.compressedSizes.1),
-                formatHex(self.compressedSizes.2)
+                formatHex(self.compressedSizes[0]),
+                formatHex(self.compressedSizes[1]),
+                formatHex(self.compressedSizes[2])
             ]
         ]
     }
@@ -288,8 +288,8 @@ extension PK21Header: PrettyPrintable, JSONSerializable {
             "base_offset": formatHex(self.baseOffset),
             "version_max": self.versionMax,
             "version_min": self.versionMin,
-            "section_sizes": [formatHex(self.sectionSizes.0), formatHex(self.sectionSizes.1), formatHex(self.sectionSizes.2), formatHex(self.sectionSizes.3)],
-            "section_offsets": [formatHex(self.sectionOffsets.0), formatHex(self.sectionOffsets.1), formatHex(self.sectionOffsets.2), formatHex(self.sectionOffsets.3)],
+            "section_sizes": [formatHex(self.sectionSizes[0]), formatHex(self.sectionSizes[1]), formatHex(self.sectionSizes[2]), formatHex(self.sectionSizes[3])],
+            "section_offsets": [formatHex(self.sectionOffsets[0]), formatHex(self.sectionOffsets[1]), formatHex(self.sectionOffsets[2]), formatHex(self.sectionOffsets[3])],
             "section_hashes": self.sectionHashes.map { $0.hexEncodedString() }
         ]
     }

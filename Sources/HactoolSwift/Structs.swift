@@ -13,7 +13,7 @@ import Foundation
 // MARK: - 1. hfs0_header_t
 /// HFS0 (Horizon File System 0) 的头部结构。
 /// 来源: hfs0.h
-struct HFS0Header {
+struct HFS0Header: Equatable {
     static let size = 16
     
     /// 魔术字，应为 "HFS0" (0x30534648)。
@@ -39,7 +39,7 @@ struct HFS0Header {
 // MARK: - 2. pfs0_header_t
 /// PFS0 (Partition File System 0) 的头部结构。
 /// 来源: pfs0.h
-struct PFS0Header {
+struct PFS0Header: Equatable {
     static let size = 16
     
     /// 魔术字，应为 "PFS0" (0x30534650)。
@@ -65,7 +65,7 @@ struct PFS0Header {
 // MARK: - 3. ini1_header_t
 /// INI1 (Initialiser 1) 格式的头部。
 /// 来源: kip.h
-struct INI1Header {
+struct INI1Header: Equatable {
     static let fixedSize = 16
     
     /// 魔术字，应为 "INI1" (0x31494E49)。
@@ -93,11 +93,11 @@ struct INI1Header {
 // MARK: - 4. kip1_header_t
 /// KIP1 (Kernel Initial Process 1) 的头部结构。
 /// 来源: kip.h
-struct KIP1Header {
+struct KIP1Header: Equatable {
     static let fixedSize = 256
     
     /// KIP1 段头部信息，定义了 .text, .rodata, .data 等段的内存布局和大小。
-    struct SectionHeader {
+    struct SectionHeader: Equatable {
         static let size = 16
         
         /// 段在进程内存中的偏移量。
@@ -182,7 +182,7 @@ struct KIP1Header {
 // MARK: - 5. npdm_t
 /// NPDM (Nintendo Program Data Manifest) 结构。
 /// 来源: npdm.h
-struct NPDMHeader {
+struct NPDMHeader: Equatable {
     static let size = 128
     
     /// 魔术字，应为 "META" (0x4154454D)。
@@ -256,7 +256,7 @@ struct NCAKeyset {
 // MARK: - 7. nca_header_t
 /// NCA (Nintendo Content Archive) 文件的头部结构。
 /// 来源: nca.h
-struct NCAHeader {
+struct NCAHeader: Equatable {
     static let size = 3072
     
     enum NCAContentType: UInt8, CustomStringConvertible, Codable, Equatable {
@@ -270,7 +270,7 @@ struct NCAHeader {
     }
 
 
-    enum NCAEncryptionType: UInt8, CustomStringConvertible, Codable, Equatable {
+    enum EncryptionType: UInt8, CustomStringConvertible, Codable, Equatable {
         case none = 0
         case xts = 1
         case ctr = 2
@@ -283,7 +283,7 @@ struct NCAHeader {
         }
     }
     /// 用于表示 SDK 版本号的 Union。
-    struct SDKVersion {
+    struct SDKVersion: Equatable {
         let rawValue: UInt32
         var revision: UInt8 { UInt8(truncatingIfNeeded: rawValue) }
         var micro: UInt8 { UInt8(truncatingIfNeeded: rawValue >> 8) }
@@ -292,7 +292,7 @@ struct NCAHeader {
         var string: String { "\(major).\(minor).\(micro).\(revision)" }
     }
 
-    struct SectionEntry {
+    struct SectionEntry: Equatable {
         static let size = 16
         
         let mediaOffset: UInt32
@@ -328,7 +328,7 @@ struct NCAHeader {
     /// 内容类型。
     let contentType: NCAContentType
     /// 主密钥修订版本。
-    let cryptoType: NCAEncryptionType
+    let cryptoType: EncryptionType
     /// 使用的密钥区域加密密钥（KAEK）的索引。
     let kaekInd: UInt8
     /// 整个 NCA 文件的大小。
@@ -384,7 +384,7 @@ struct NCAHeader {
         }
         
         let cryptoTypeRaw: UInt8 = try readLE(from: buffer, at: offset + 0x206)
-        guard let cryptoType = NCAEncryptionType(rawValue: cryptoTypeRaw) else {
+        guard let cryptoType = EncryptionType(rawValue: cryptoTypeRaw) else {
             throw ParserError.unknownFormat("Invalid NCA Crypto Type: \(contentTypeRaw)")
         }
 
@@ -413,7 +413,7 @@ struct NCAHeader {
 // MARK: - 8. nca_fs_header_t
 /// NCA 中每个分区的头部结构。
 /// 来源: nca.h
-struct NCAFileSystemHeader {
+struct NCAFileSystemHeader: Equatable {
     static let size = 512
     
     enum FSType: UInt8, CustomStringConvertible {
@@ -460,7 +460,7 @@ struct NCASectionContext {
 // MARK: - 10. nca0_romfs_hdr_t
 /// 早期 Beta 版游戏的 RomFS 头部结构。
 /// 来源: nca0_romfs.h
-struct NCA0RomFSHeader {
+struct NCA0RomFSHeader: Equatable {
     static let size = 40
     
     let headerSize: UInt32
@@ -493,10 +493,10 @@ struct NCA0RomFSHeader {
 // MARK: - 11. nso0_header_t
 /// NSO0 (Nintendo Switch Object 0) 文件的头部。
 /// 来源: nso.h
-struct NSO0Header {
+struct NSO0Header: Equatable {
     static let fixedSize = 256
     
-    struct Segment {
+    struct Segment: Equatable {
         static let size = 16
         let fileOffset: UInt32
         let memoryOffset: UInt32
@@ -517,7 +517,7 @@ struct NSO0Header {
     let flags: UInt32
     let segments: [Segment]
     let buildId: Data
-    let compressedSizes: (UInt32, UInt32, UInt32)
+    let compressedSizes: [UInt32]
     let dynstrExtents: UInt64
     let dynsymExtents: UInt64
     let sectionHashes: [Data]
@@ -534,11 +534,11 @@ struct NSO0Header {
             flags: try readLE(from: buffer, at: offset + 12),
             segments: segs,
             buildId: Data(buffer[offset+64 ..< offset+96]),
-            compressedSizes: (
+            compressedSizes: [
                 try readLE(from: buffer, at: offset + 96),
                 try readLE(from: buffer, at: offset + 100),
                 try readLE(from: buffer, at: offset + 104)
-            ),
+            ],
             dynstrExtents: try readLE(from: buffer, at: offset + 144),
             dynsymExtents: try readLE(from: buffer, at: offset + 152),
             sectionHashes: [
@@ -553,7 +553,7 @@ struct NSO0Header {
 // MARK: - 12. pk11_mariko_oem_header_t
 /// `Package1` 文件在 Mariko 平台上的 OEM 头部。
 /// 来源: packages.h
-struct PK11MarikoOEMHeader {
+struct PK11MarikoOEMHeader: Equatable {
     static let size = 368
 
     let aesMac: Data
@@ -582,7 +582,7 @@ struct PK11MarikoOEMHeader {
 // MARK: - 13. pk11_metadata_t
 /// `Package1` 文件的元数据部分。
 /// 来源: packages.h
-struct PK11Metadata {
+struct PK11Metadata: Equatable {
     static let size = 32
 
     let ldrHash: UInt32
@@ -610,7 +610,7 @@ struct PK11Metadata {
 // MARK: - 16. pk11_t
 /// `Package1` 的核心载荷。
 /// 来源: packages.h
-struct PK11PayloadHeader {
+struct PK11PayloadHeader: Equatable {
     static let fixedSize = 32
 
     let magic: UInt32
@@ -642,7 +642,7 @@ struct PK11PayloadHeader {
 /// `Package2` 的头部。
 /// 注意: 此结构是紧密打包的 (`#pragma pack(push, 1)`).
 /// 来源: packages.h
-struct PK21Header {
+struct PK21Header: Equatable {
     static let size = 512
 
     let signature: Data
@@ -653,10 +653,10 @@ struct PK21Header {
     let reserved: UInt32
     let versionMax: UInt8
     let versionMin: UInt8
-    let sectionSizes: (UInt32, UInt32, UInt32, UInt32)
-    let sectionOffsets: (UInt32, UInt32, UInt32, UInt32)
+    let sectionSizes: [UInt32]
+    let sectionOffsets: [UInt32]
     let sectionHashes: [Data]
-
+    
     static func parse(from buffer: UnsafeRawBufferPointer, at offset: Int = 0) throws -> PK21Header {
         return .init(
             signature: Data(buffer[offset+0x0 ..< offset+0x100]),
@@ -672,14 +672,14 @@ struct PK21Header {
             reserved: try readLE(from: buffer, at: offset + 0x158),
             versionMax: try readLE(from: buffer, at: offset + 0x15C),
             versionMin: try readLE(from: buffer, at: offset + 0x15D),
-            sectionSizes: (
+            sectionSizes: [
                 try readLE(from: buffer, at: offset + 0x160), try readLE(from: buffer, at: offset + 0x164),
                 try readLE(from: buffer, at: offset + 0x168), try readLE(from: buffer, at: offset + 0x16C)
-            ),
-            sectionOffsets: (
+            ],
+            sectionOffsets: [
                 try readLE(from: buffer, at: offset + 0x170), try readLE(from: buffer, at: offset + 0x174),
                 try readLE(from: buffer, at: offset + 0x178), try readLE(from: buffer, at: offset + 0x17C)
-            ),
+            ],
             sectionHashes: [
                 Data(buffer[offset+0x180 ..< offset+0x1A0]),
                 Data(buffer[offset+0x1A0 ..< offset+0x1C0]),
@@ -694,7 +694,7 @@ struct PK21Header {
 // MARK: - 18. romfs_hdr_t
 /// RomFS 的头部结构。
 /// 来源: ivfc.h
-struct RomFSHeader {
+struct RomFSHeader: Equatable {
     static let size = 80
     
     let headerSize: UInt64
@@ -729,7 +729,7 @@ struct RomFSHeader {
 /// Switch 存档文件的头部结构。
 /// 注意: 此结构是紧密打包的 (`#pragma pack(push, 1)`).
 /// 来源: save.h
-struct SaveHeader {
+struct SaveHeader: Equatable {
     static let size = 16384 // 0x4000
     
     let cmac: Data
@@ -747,11 +747,41 @@ struct SaveHeader {
     }
 }
 
+// MARK: - 20. remap_entry_ctx_t
+/// 描述了存档文件中虚拟地址到物理地址的重映射条目。
+/// 注意: 此结构是紧密打包的 (`#pragma pack(push, 1)`).
+/// 来源: save.h
+struct RemapEntry: Equatable {
+    static let size = 32
+
+    /// 虚拟偏移量。
+    let virtualOffset: UInt64
+    /// 物理偏移量。
+    let physicalOffset: UInt64
+    /// 该映射块的大小。
+    let size: UInt64
+    /// 对齐要求。
+    let alignment: UInt32
+    /// 保留字段。
+    let reserved: UInt32
+
+    /// 从不安全的原始缓冲区解析 RemapEntry。
+    static func parse(from buffer: UnsafeRawBufferPointer, at offset: Int = 0) throws -> RemapEntry {
+        return .init(
+            virtualOffset:  try readLE(from: buffer, at: offset + 0),
+            physicalOffset: try readLE(from: buffer, at: offset + 8),
+            size:           try readLE(from: buffer, at: offset + 16),
+            alignment:      try readLE(from: buffer, at: offset + 24),
+            reserved:       try readLE(from: buffer, at: offset + 28)
+        )
+    }
+}
+
 
 // MARK: - 21. xci_header_t
 /// XCI (Game Card Image) 文件的头部结构。
 /// 来源: xci.h
-struct XCIHeader {
+struct XCIHeader: Equatable {
     static let size = 512
     
     let headerSig: Data
